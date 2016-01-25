@@ -25,21 +25,28 @@
 /*
 *	Modifications by xboi209 <xboi209@gmail.com>
 */
-#define VERIX86VERSION 1 	//CheckRevision version(ver-ix86-1.dll = 1, ver-ix86-2.dll = 2, etc..)
+
+
+#include <array>
 
 #include <Windows.h>
 
-const DWORD dwMpqChecksumKeys[8] = {
-	0xE7F4CB62lu,
-	0xF6A14FFClu,
-	0xAA5504AFlu,
-	0x871FCDC2lu,
-	0x11BF6A18lu,
-	0xC57292E6lu,
-	0x7927D27Elu,
-	0x2FEC8733lu
+
+//CheckRevision version(ver-ix86-1.dll = 1, ver-ix86-2.dll = 2, etc..)
+const int ver_ix86_id = 1;
+
+const std::array<DWORD, 8> dwMpqChecksumKeys =
+{
+	0xE7F4CB62,
+	0xF6A14FFC,
+	0xAA5504AF,
+	0x871FCDC2,
+	0x11BF6A18,
+	0xC57292E6,
+	0x7927D27E,
+	0x2FEC8733
 };
 
-bool GetExeInfo(LPCSTR lpszFileName, char *lpExeInfoString);
-bool GetExeVer(LPCSTR lpszFileName, unsigned long * lpdwVersion);
-bool GetChecksum(LPCSTR lpszFileName1, LPCSTR lpszFileName2, LPCSTR lpszFileName3, int lpszValueString, unsigned long * lpdwChecksum);
+bool GetExeInfo(LPCSTR lpszFileName, char *lpszExeInfoString);
+bool GetExeVer(LPCSTR lpszFileName, DWORD *lpdwVersion);
+bool GetChecksum(LPCSTR lpszFileName1, LPCSTR lpszFileName2, LPCSTR lpszFileName3, LPCSTR lpszValueString, DWORD *lpdwChecksum);

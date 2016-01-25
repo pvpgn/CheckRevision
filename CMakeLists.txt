@@ -6,3 +6,7 @@ include_directories(src)
 add_library(CheckRevision SHARED src/modexp.def src/checkrevision.cpp src/checkrevision.h src/dllmain.cpp src/util.cpp src/util.h)
 
 target_link_libraries(CheckRevision version.lib)
+
+if(MSVC)
+	add_definitions(-D _CRT_SECURE_NO_WARNINGS)
+endif()
