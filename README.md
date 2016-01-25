@@ -1,6 +1,22 @@
 # CheckRevision
-CheckRevision for Battle.net Classic Games
+CheckRevision for classic Battle.net games.
 
-CheckRevision is used by Blizzard to ensure that only authentic game clients connect to their servers.
 
-<a href='https://pledgie.com/campaigns/30143'><img alt='Click here to lend your support to: xboi209&#x27;s Github and make a donation at pledgie.com !' src='https://pledgie.com/campaigns/30143.png?skin_name=chrome' border='0' ></a>
+Extrawork
+=========
+CheckRevision is used by Blizzard to ensure that only authentic game clients connect to their servers. 
+
+Binaries
+=========
+Pre-compiled binaries are available on the [Releases](https://github.com/xboi209/CheckRevision/releases) page.
+
+Compiling
+=========
+A C++11 compliant compiler with WinAPI available should be able to compile this project.
+
+License
+=========
+This software contains portions of horizon(https://github.com/kwolekr/horizon), which are
+indicated by the appropriate files and are licensed under the BSD 2-Clause License. All other 
+portions of this software are covered by the UNLICENSE agreement. Please refer to 
+<http://unlicense.org/> if you have not received a copy of the UNLICENSE agreement.
