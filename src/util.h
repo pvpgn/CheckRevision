@@ -28,15 +28,17 @@
 
 
 #include <array>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <string>
 
 #include <Windows.h>
 
 
-//CheckRevision version(ver-ix86-1.dll = 1, ver-ix86-2.dll = 2, etc..)
-const int ver_ix86_id = 1;
-
-const std::array<DWORD, 8> dwMpqChecksumKeys =
-{
+const std::array<std::uint32_t, 8> checksumseeds = {
 	0xE7F4CB62,
 	0xF6A14FFC,
 	0xAA5504AF,
@@ -47,6 +49,6 @@ const std::array<DWORD, 8> dwMpqChecksumKeys =
 	0x2FEC8733
 };
 
-bool GetExeInfo(LPCSTR lpszFileName, char *lpszExeInfoString);
-bool GetExeVer(LPCSTR lpszFileName, DWORD *lpdwVersion);
-bool GetChecksum(LPCSTR lpszFileName1, LPCSTR lpszFileName2, LPCSTR lpszFileName3, LPCSTR lpszValueString, DWORD *lpdwChecksum);
+bool GetExeInfo(const std::string& lpszFileName, char *lpszExeInfoString);
+bool GetExeVer(const std::string& lpszFileName, DWORD *lpdwVersion);
+bool GetChecksum(const std::string& lpszFormulaString, const std::array<std::string, 3> files, DWORD *lpdwChecksum);

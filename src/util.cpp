@@ -20,29 +20,35 @@
 * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-//https://github.com/kwolekr/horizon/blob/master/src/checkrevision.cpp
+//https://github.com/kwolekr/phyros/blob/master/src/crypto/checkrevision.c
 
 /*
 *	Modifications by xboi209 <xboi209@gmail.com>
 */
 
+
+#include "checkrevision.h"
 #include "util.h"
 
-#include <cassert> //assert()
-#include <cctype> //std::isalpha(), std::toupper()
-#include <cstdio> //std::sprintf()
-#include <cstdlib> //std::atol()
-#include <cstring> //std::strchr()
-#include <ctime> //std::gmtime()
+#include <array>
+#include <cassert>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <memory>
+#include <string>
 
 #include <Windows.h>
-#include <sys/types.h> //_stat
-#include <sys/stat.h> //^
+#include <sys/types.h>
+#include <sys/stat.h>
 
-bool GetExeInfo(LPCSTR lpszFileName, char *lpszExeInfoString)
+
+bool GetExeInfo(const std::string& lpszFileName, char *lpszExeInfoString)
 {
 	struct _stat buf = {};
-	int statret = _stat(lpszFileName, &buf);
+	int statret = _stat(lpszFileName.c_str(), &buf);
 	assert(statret != EINVAL); //invalid parameter
 	if (statret == -1)
 		return false;
@@ -67,176 +73,224 @@ bool GetExeInfo(LPCSTR lpszFileName, char *lpszExeInfoString)
 	return true;
 }
 
-bool GetExeVer(LPCSTR lpszFileName, DWORD *lpdwVersion)
+
+/*******************************************************************************************************************
+********************************************************************************************************************
+********************************************************************************************************************
+*******************************************************************************************************************/
+
+
+class VirtualFreeDeleter
 {
-	DWORD dwSizeOfFileInfoVer = GetFileVersionInfoSizeA(lpszFileName, nullptr);
+public:
+	using pointer = LPVOID;
+
+	void operator()(LPVOID lpAddress) const
+	{
+		VirtualFree(lpAddress, 0, MEM_RELEASE);
+	}
+};
+
+
+bool GetExeVer(const std::string& lpszFileName, DWORD *lpdwVersion)
+{
+	DWORD dwSizeOfFileInfoVer = GetFileVersionInfoSizeA(lpszFileName.c_str(), nullptr);
 	if (dwSizeOfFileInfoVer == 0)
 		return false;
 
-	LPVOID lpbBuffer = VirtualAlloc(nullptr, dwSizeOfFileInfoVer, MEM_COMMIT, PAGE_READWRITE);
-	if (lpbBuffer == nullptr)
+	std::unique_ptr<LPVOID, VirtualFreeDeleter> lpbBuffer(VirtualAlloc(nullptr, dwSizeOfFileInfoVer, MEM_COMMIT, PAGE_READWRITE));
+	if (lpbBuffer.get() == nullptr)
 		return false;
 
-	if (GetFileVersionInfoA(lpszFileName, 0, dwSizeOfFileInfoVer, lpbBuffer) == FALSE)
+	if (GetFileVersionInfoA(lpszFileName.c_str(), 0, dwSizeOfFileInfoVer, lpbBuffer.get()) == FALSE)
 		return false;
 
 	VS_FIXEDFILEINFO *ffi = nullptr;
-	if (VerQueryValueA(lpbBuffer, "\\", reinterpret_cast<LPVOID *>(&ffi), (PUINT)&dwSizeOfFileInfoVer) == FALSE)
+	if (VerQueryValueA(lpbBuffer.get(), "\\", reinterpret_cast<LPVOID *>(&ffi), (PUINT)&dwSizeOfFileInfoVer) == FALSE)
 		return false;
 
 	*lpdwVersion =
 		((HIWORD(ffi->dwProductVersionMS) & 0xFF) << 24) |
 		((LOWORD(ffi->dwProductVersionMS) & 0xFF) << 16) |
 		((HIWORD(ffi->dwProductVersionLS) & 0xFF) << 8) |
-		(LOWORD(ffi->dwProductVersionLS) & 0xFF
-			);
-
-	VirtualFree(lpbBuffer, 0, MEM_RELEASE);
+		(LOWORD(ffi->dwProductVersionLS) & 0xFF);
 
 	return true;
 }
 
-//faulty code
-bool GetChecksum(LPCSTR lpszFileName1, LPCSTR lpszFileName2, LPCSTR lpszFileName3, LPCSTR lpszValueString, DWORD *lpdwChecksum)
+
+/*******************************************************************************************************************
+********************************************************************************************************************
+********************************************************************************************************************
+*******************************************************************************************************************/
+
+
+class CloseHandleDeleter
 {
-	//Blizzard only has 7 versions of ver-ix86-#.dll(first version begins on 0)
-	static_assert(ver_ix86_id > 0 && ver_ix86_id < 7, "ver_ix86_id must be between 0 and 6");
+public:
+	using pointer = HANDLE;
 
-	int nVariable = 0, nHashOperations = 0, nVariable1[16] = {}, nVariable2[16] = {}, nVariable3[16] = {};
-	DWORD dwVariables[4] = {};
-	char cOperations[16] = {}; //Should it be 16 bytes? 
-
-	LPSTR lpszFileNames[3] = { 
-		const_cast<LPSTR>(lpszFileName1), 
-		const_cast<LPSTR>(lpszFileName2) , 
-		const_cast<LPSTR>(lpszFileName3) 
-	};
-	char *s = const_cast<char *>(lpszValueString);
-
-	while (*s != '\0')
+	void operator()(HANDLE handle) const
 	{
-		if (std::isalpha(*s))
+		CloseHandle(handle);
+	}
+};
+
+class UnmapViewOfFileDeleter
+{
+public:
+	using pointer = LPVOID;
+
+	void operator()(LPVOID lpBaseAddress) const
+	{
+		UnmapViewOfFile(lpBaseAddress);
+	}
+};
+
+
+constexpr int getNum(char ch)
+{
+	return (ch == 'S') ? 3 : (ch - 'A');
+}
+
+constexpr int isNum(char ch)
+{
+	return (ch >= '0') && (ch <= '9');
+}
+
+
+bool GetChecksum(const std::string& lpszFormulaString, const std::array<std::string, 3> files, DWORD *lpdwChecksum)
+{
+	if (files.size() != 3)
+		return false;
+
+	char checkrevisionPath[MAX_PATH] = {};
+	HMODULE hm = nullptr;
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+		GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		(LPCSTR)&GetChecksum,
+		&hm))
+		return false;
+
+	if (GetModuleFileNameA(hm, checkrevisionPath, sizeof(checkrevisionPath)) == 0)
+		return false;
+
+	int mpqNumber = std::stoi(std::string(std::strrchr(checkrevisionPath, '.') - 1, 1));
+	if (mpqNumber > 7)
+		return false;
+
+	std::uint32_t values[4], ovd[4], ovs1[4], ovs2[4];
+	char ops[4];
+	int curFormula = 0, variable;
+
+	const char *token = lpszFormulaString.c_str();
+	while (token && *token)
+	{
+		if (*(token + 1) == '=')
 		{
-			nVariable = std::toupper(*s) - 'A';
-		}
-		else
-		{
-			nHashOperations = (int)(*s - '0');
-			s = std::strchr(s, ' ');
-			if (s == nullptr)
+			variable = getNum(*token);
+			if (variable < 0 || variable > 3)
 				return false;
-			s++;
-			break;
-		}
-
-		if (*(++s) == '=')
-			s++;
-
-		dwVariables[nVariable] = std::atol(s);
-
-		s = std::strchr(s, ' ');
-		if (s == nullptr)
-			return false;
-
-		s++;
-	}
-
-	for (auto i = 0; i < nHashOperations; i++)
-	{
-		if (!std::isalpha(*s))
-			return false;
-
-		nVariable1[i] = std::toupper(*s) - 'A';
-
-		if (*(++s) == '=')
-			s++;
-
-		if (std::toupper(*s) == 'S')
-			nVariable2[i] = 3;
-		else
-			nVariable2[i] = std::toupper(*s) - 'A';
-
-		cOperations[i] = *(++s);
-
-		s++;
-
-		if (std::toupper(*s) == 'S')
-			nVariable3[i] = 3;
-		else
-			nVariable3[i] = (int)(std::toupper(*s) - 'A');
-
-		s = std::strchr(s, ' ');
-		if (s == nullptr)
-			break;
-
-		s++;
-	}
-
-	dwVariables[0] ^= dwMpqChecksumKeys.at(ver_ix86_id);
-	for (auto i = 0; i < 3; i++)
-	{
-		if (lpszFileNames[i][0] == '\0')
-			continue;
-
-		HANDLE hFile = CreateFileA(lpszFileNames[i],
-			GENERIC_READ,
-			FILE_SHARE_READ,
-			nullptr,
-			OPEN_EXISTING,
-			FILE_ATTRIBUTE_NORMAL,
-			nullptr);
-
-		if (hFile == INVALID_HANDLE_VALUE)
-			return false;
-
-		HANDLE hFileMapping = CreateFileMappingA(hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
-		if (hFileMapping == nullptr)
-		{
-			CloseHandle(hFile);
-			return false;
-		}
-
-		DWORD *lpdwBuffer = reinterpret_cast<DWORD *>(MapViewOfFile(hFileMapping, FILE_MAP_READ, 0, 0, 0));
-		if (lpdwBuffer == nullptr)
-		{
-			CloseHandle(hFileMapping);
-			CloseHandle(hFile);
-			return false;
-		}
-
-		DWORD dwSize = (GetFileSize(hFile, nullptr) / 1024lu) * 1024lu;
-		for (DWORD j = 0; j < (dwSize / 4lu); j++)
-		{
-			dwVariables[3] = lpdwBuffer[j];
-			for (auto k = 0; k < nHashOperations; k++)
+			token += 2;
+			if (isNum(*token))
 			{
-				switch (cOperations[k])
+				values[variable] = std::strtoul(token, nullptr, 10);
+			}
+			else
+			{
+				if (curFormula > 3)
+					return false;
+				ovd[curFormula] = variable;
+				ovs1[curFormula] = getNum(*token);
+				ops[curFormula] = *(token + 1);
+				ovs2[curFormula] = getNum(*(token + 2));
+				curFormula++;
+			}
+		}
+
+		for (; *token != 0; token++)
+		{
+			if (*token == ' ')
+			{
+				token++;
+				break;
+			}
+		}
+	}
+
+	values[0] ^= checksumseeds[mpqNumber];
+
+	for (const auto& file : files)
+	{
+		std::unique_ptr<HANDLE, CloseHandleDeleter> hFile(CreateFileA(file.c_str(), GENERIC_READ, FILE_SHARE_READ,
+			nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+		if (hFile.get() == INVALID_HANDLE_VALUE)
+			return false;
+
+		LARGE_INTEGER file_len = {};
+		if (GetFileSizeEx(hFile.get(), &file_len) == FALSE)
+			return false;
+
+		std::unique_ptr<HANDLE, CloseHandleDeleter> hFileMapping(CreateFileMappingA(hFile.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+		if (!hFileMapping)
+			return false;
+
+		std::unique_ptr<LPVOID, UnmapViewOfFileDeleter> file_buffer(MapViewOfFile(hFileMapping.get(), FILE_MAP_READ, 0, 0, 0));
+		if (file_buffer == nullptr)
+			return false;
+
+		std::uint32_t *current = nullptr;
+		void *buff = nullptr;
+		std::size_t buffer_size = file_len.QuadPart;
+		std::size_t remainder = file_len.QuadPart & 0x3FF;
+		if (remainder == 0)
+		{
+			current = static_cast<std::uint32_t *>(file_buffer.get());
+		}
+		else
+		{
+			std::uint8_t pad = 0xFF;
+
+			buffer_size += 1024 - remainder;
+			buff = std::malloc(buffer_size);
+			std::memcpy(buff, file_buffer.get(), file_len.QuadPart);
+
+			std::uint8_t *pad_dest = static_cast<std::uint8_t *>(buff) + file_len.QuadPart;
+			for (auto u = file_len.QuadPart; u < buffer_size; u++)
+				*pad_dest++ = pad--;
+
+			current = static_cast<std::uint32_t *>(buff);
+		}
+
+		for (std::size_t j = 0; j < (buffer_size / sizeof(std::uint32_t)); j++)
+		{
+			values[3] = current[j];
+			for (int k = 0; k < curFormula; k++)
+			{
+				switch (ops[k])
 				{
 				case '+':
-					dwVariables[nVariable1[k]] = dwVariables[nVariable2[k]] +
-						dwVariables[nVariable3[k]];
+					values[ovd[k]] = values[ovs1[k]] + values[ovs2[k]];
 					break;
 				case '-':
-					dwVariables[nVariable1[k]] = dwVariables[nVariable2[k]] -
-						dwVariables[nVariable3[k]];
+					values[ovd[k]] = values[ovs1[k]] - values[ovs2[k]];
 					break;
 				case '^':
-					dwVariables[nVariable1[k]] = dwVariables[nVariable2[k]] ^
-						dwVariables[nVariable3[k]];
+					values[ovd[k]] = values[ovs1[k]] ^ values[ovs2[k]];
 					break;
 				default:
-					UnmapViewOfFile(lpdwBuffer);
-					CloseHandle(hFileMapping);
-					CloseHandle(hFile);
+					if (buff)
+						std::free(buff);
 					return false;
 				}
 			}
 		}
-		UnmapViewOfFile(lpdwBuffer);
-		CloseHandle(hFileMapping);
-		CloseHandle(hFile);
+
+		if (buff)
+			std::free(buff);
 	}
 
-	*lpdwChecksum = dwVariables[2];
+	*lpdwChecksum = values[2];
+
 	return true;
 }
