@@ -1,9 +1,5 @@
 # CheckRevision
-CheckRevision for classic Battle.net games.
 
-
-Extrawork
-=========
 CheckRevision is used by Blizzard to ensure that only authentic game clients connect to their servers. 
 
 Binaries
